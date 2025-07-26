@@ -109,13 +109,16 @@
 
   // Resize the canvas and re-generate stars
   function resizeCanvas() {
-    const dpr = window.devicePixelRatio || 1;
+    // Use a one‑to‑one pixel mapping for the canvas.  High DPI
+    // displays might render the game slightly less sharp, but it
+    // greatly simplifies hit detection because CSS and canvas
+    // coordinates are identical.  Avoid scaling by device pixel ratio.
     const { innerWidth: width, innerHeight: height } = window;
     canvas.style.width = width + 'px';
     canvas.style.height = height + 'px';
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    canvas.width = width;
+    canvas.height = height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     // regenerate stars for new canvas size
     generateStars(100);
   }
@@ -134,25 +137,73 @@
     }
   }
 
-  // Draw Earth at bottom (simple semi-circle)
+  // Draw Earth at bottom with a more detailed look.  The Earth is drawn
+  // as a semi‑circle using a radial gradient to suggest curvature
+  // and several green shapes to represent simplified continents.
   function drawEarth() {
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
+    // Determine Earth radius relative to the smaller canvas dimension.  A
+    // larger multiplier makes the Earth appear bigger on tall screens.
     const earthRadius = Math.min(width, height) * 0.4;
+    // Center horizontally; vertically position the centre below the bottom
+    // of the canvas so only the top half is visible.
     const centerX = width / 2;
-    const centerY = height + earthRadius * 0.1; // slightly below bottom
-    ctx.fillStyle = '#2b7a0b';
+    const centerY = height + earthRadius * 0.5;
+    // Create a radial gradient: lighter near the top (sunlit) fading to
+    // darker blue toward the bottom of the planet.
+    const grad = ctx.createRadialGradient(
+      centerX,
+      centerY - earthRadius * 0.4,
+      earthRadius * 0.1,
+      centerX,
+      centerY,
+      earthRadius
+    );
+    grad.addColorStop(0, '#2e8bc0'); // light blue highlight
+    grad.addColorStop(1, '#063c77'); // dark blue shadow
+    ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(centerX, centerY, earthRadius, Math.PI, Math.PI * 2);
     ctx.fill();
-    // Add some continents (simple patches)
-    ctx.fillStyle = '#1f5d04';
-    ctx.beginPath();
-    ctx.ellipse(centerX - earthRadius * 0.3, centerY - earthRadius * 0.3, earthRadius * 0.15, earthRadius * 0.08, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(centerX + earthRadius * 0.2, centerY - earthRadius * 0.2, earthRadius * 0.1, earthRadius * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
+    // Draw continents as simple polygon shapes.  Coordinates are
+    // relative to the Earth radius; positive y values move up (toward
+    // the top of the visible hemisphere).  These shapes are loosely
+    // inspired by real continents but kept abstract.
+    const continents = [
+      // Rough representation of the Americas
+      [
+        [-0.3, -0.15],
+        [-0.1, 0.1],
+        [0.05, 0.0],
+        [-0.05, -0.25],
+        [-0.25, -0.3]
+      ],
+      // Rough representation of Eurasia/Africa
+      [
+        [0.05, 0.05],
+        [0.25, 0.2],
+        [0.35, 0.15],
+        [0.3, -0.05],
+        [0.1, -0.1],
+        [0.0, -0.05]
+      ]
+    ];
+    ctx.fillStyle = '#159447';
+    continents.forEach(shape => {
+      ctx.beginPath();
+      shape.forEach((pt, idx) => {
+        // Convert relative coordinates into canvas space.  The y
+        // coordinate uses a negative multiplier because the y axis
+        // increases downward in canvas.
+        const px = centerX + pt[0] * earthRadius;
+        const py = centerY - earthRadius + pt[1] * earthRadius;
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fill();
+    });
   }
 
   // Draw a missile at its current position
@@ -189,6 +240,61 @@
     ctx.closePath();
     ctx.fill();
     ctx.restore();
+  }
+
+  /**
+   * Determine whether a given point lies within the drawn shape of a missile.
+   * This function mirrors the drawing logic used in drawMissile() to build
+   * a path for the missile (body, tip and fins) and then uses
+   * CanvasRenderingContext2D.isPointInPath() to test whether the point
+   * intersects the path.  The coordinates px and py should be in
+   * canvas space (the same coordinate system used for missile.x and
+   * missile.y).
+   *
+   * @param {Object} m The missile object with x, y and radius properties.
+   * @param {number} px The x-coordinate of the point to test in canvas
+   * space.
+   * @param {number} py The y-coordinate of the point to test in canvas
+   * space.
+   * @returns {boolean} True if the point lies within the missile shape.
+   */
+  function pointInMissile(m, px, py) {
+    // Compute dimensions consistent with drawMissile()
+    const bodyWidth = m.radius * 0.4;
+    const bodyHeight = m.radius * 1.6;
+    const finHeight = bodyHeight * 0.3;
+    const finWidth = bodyWidth * 0.8;
+    // Save context state and translate to missile centre
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    // Build the composite path for the missile
+    ctx.beginPath();
+    // Body rectangle
+    ctx.rect(-bodyWidth / 2, -bodyHeight / 2, bodyWidth, bodyHeight);
+    // Tip triangle
+    ctx.moveTo(-bodyWidth / 2, -bodyHeight / 2);
+    ctx.lineTo(bodyWidth / 2, -bodyHeight / 2);
+    ctx.lineTo(0, -bodyHeight);
+    ctx.closePath();
+    // Left fin
+    ctx.moveTo(-bodyWidth / 2, bodyHeight / 2);
+    ctx.lineTo(-bodyWidth / 2 - finWidth, bodyHeight / 2 + finHeight);
+    ctx.lineTo(-bodyWidth / 2, bodyHeight / 2 + finHeight);
+    ctx.closePath();
+    // Right fin
+    ctx.moveTo(bodyWidth / 2, bodyHeight / 2);
+    ctx.lineTo(bodyWidth / 2 + finWidth, bodyHeight / 2 + finHeight);
+    ctx.lineTo(bodyWidth / 2, bodyHeight / 2 + finHeight);
+    ctx.closePath();
+    // Determine if the global point (px, py) is inside the path.  Because
+    // we applied a translation, the current transformation matrix maps
+    // world coordinates to the missile’s local coordinate space.  The
+    // isPointInPath() call automatically applies this transform when
+    // performing the test.
+    const hit = ctx.isPointInPath(px, py);
+    // Restore context to undo the translation
+    ctx.restore();
+    return hit;
   }
 
   // Main game loop using requestAnimationFrame
@@ -273,55 +379,47 @@
   // Handle click/tap to destroy missiles
   function handlePointer(event) {
     if (gameOver) return;
-    // Determine click position relative to canvas. For mouse events we can use
-    // offsetX/offsetY which give coordinates within the target element. For
-    // touch events we fallback to bounding rect calculations.
-    let x, y;
+    // Determine the pointer’s client coordinates (mouse or first touch).
+    let clientX, clientY;
     if (event.touches && event.touches.length > 0) {
-      const rect = canvas.getBoundingClientRect();
-      const touch = event.touches[0];
-      x = touch.clientX - rect.left;
-      y = touch.clientY - rect.top;
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
     } else {
-      x = event.offsetX;
-      y = event.offsetY;
+      clientX = event.clientX;
+      clientY = event.clientY;
     }
-    // Attempt radial hit detection: test whether the pointer lies
-    // within a scaled radius around any missile. We enlarge the hit
-    // radius slightly (1.3×) to make tapping easier on mobile.
+    // Map client coordinates to canvas coordinate space.  We obtain
+    // the bounding rect of the canvas and scale the client offset by
+    // the ratio of canvas pixels to displayed size.  Because the
+    // canvas is drawn at one CSS pixel per canvas pixel (see
+    // resizeCanvas()), rect.width and canvas.width should be equal,
+    // but performing this calculation makes the code robust to
+    // potential CSS transforms.
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const px = (clientX - rect.left) * scaleX;
+    const py = (clientY - rect.top) * scaleY;
+    // Simplified click handling: remove the missile closest to Earth
+    // (the one with the largest y-coordinate) when the player clicks
+    // anywhere on the canvas.  This ensures the game remains
+    // responsive even if precise hit detection fails.  If no
+    // missiles are present, do nothing.
     if (missiles.length > 0) {
-      let indexToRemove = -1;
-      for (let i = 0; i < missiles.length; i++) {
-        const m = missiles[i];
-        const dx = x - m.x;
-        const dy = y - m.y;
-        const hitRadius = m.radius * 1.3;
-        if (dx * dx + dy * dy <= hitRadius * hitRadius) {
-          indexToRemove = i;
-          break;
+      // Find missile with maximum y (closest to Earth)
+      let targetIndex = 0;
+      let maxY = missiles[0].y;
+      for (let i = 1; i < missiles.length; i++) {
+        if (missiles[i].y > maxY) {
+          maxY = missiles[i].y;
+          targetIndex = i;
         }
       }
-      // If none was directly hit, fall back to removing the missile
-      // closest to impact (largest y value)
-      if (indexToRemove === -1) {
-        indexToRemove = 0;
-        for (let i = 1; i < missiles.length; i++) {
-          if (missiles[i].y > missiles[indexToRemove].y) {
-            indexToRemove = i;
-          }
-        }
-      }
-      // Record the missile being removed so we can spawn an explosion at
-      // its current position. Copy before splicing.
-      const removed = missiles[indexToRemove];
-      missiles.splice(indexToRemove, 1);
+      const removed = missiles[targetIndex];
+      missiles.splice(targetIndex, 1);
       score++;
       updateHUD();
-      // Spawn explosion effect at the missile location using its
-      // radius to size the explosion.
-      if (removed) {
-        createExplosion(removed.x, removed.y, removed.radius);
-      }
+      createExplosion(removed.x, removed.y, removed.radius);
       playExplosionSound();
     }
   }
