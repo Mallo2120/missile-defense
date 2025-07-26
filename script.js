@@ -5,6 +5,9 @@
   const scoreEl = document.getElementById('score');
   const healthEl = document.getElementById('health');
   const gameOverOverlay = document.getElementById('gameOverOverlay');
+  // Grab the title element within the overlay so we can change the
+  // message for wins vs losses.
+  const gameOverTitleEl = gameOverOverlay.querySelector('h1');
   const finalScoreEl = document.getElementById('finalScore');
   const restartButton = document.getElementById('restartButton');
 
@@ -14,7 +17,8 @@
   let spawnDecay = 0.995; // factor to decrease spawnInterval each spawn
   let lastTimestamp = 0;
   let score = 0;
-  let health = 5;
+  let health = 100;
+  let level = 1;
   let gameOver = false;
   let starField = [];
   // Explosion effects array. Each entry will store properties of
@@ -326,11 +330,16 @@
       // Check if missile hits Earth.  Use canvas.height rather than
       // clientHeight to align with the drawing coordinate system.
       if (m.y - m.radius > canvas.height) {
+        // Missile hit the Earth.  Apply damage based on the current
+        // level.  At level 1 a small amount of damage is applied,
+        // increasing by one per level.  Use Math.max to ensure
+        // damage is at least 1.
         missiles.splice(i, 1);
-        health--;
+        const damage = Math.max(1, level);
+        health -= damage;
         updateHUD();
         if (health <= 0) {
-          endGame();
+          endGame(false);
           return;
         }
       }
@@ -382,7 +391,9 @@
   // Update HUD
   function updateHUD() {
     scoreEl.textContent = `Score: ${score}`;
-    healthEl.textContent = `Earth Health: ${health}`;
+    // Display health and current level in the HUD.  Showing the
+    // level helps players understand the increasing difficulty.
+    healthEl.textContent = `Earth Health: ${Math.max(0, Math.floor(health))} | Level: ${level}`;
   }
 
   // Handle click/tap to destroy missiles
@@ -448,6 +459,23 @@
       const removed = missiles[hitIndex];
       missiles.splice(hitIndex, 1);
       score++;
+      // Check for level advancement.  Every 10 points increases
+      // the level up to a maximum of 10.  When a new level is
+      // reached we adjust spawn interval and, if the player reaches
+      // level 10, trigger a win.
+      const newLevel = Math.min(10, Math.floor(score / 10) + 1);
+      if (newLevel !== level) {
+        level = newLevel;
+        // Recalculate spawn interval to make missiles spawn faster
+        // on higher levels.  This formula decreases the base
+        // interval by 10% per level.
+        spawnInterval = 2000 * Math.pow(0.9, level - 1);
+        // If level 10 is reached, the player wins.
+        if (level >= 10) {
+          winGame();
+          return;
+        }
+      }
       updateHUD();
       createExplosion(removed.x, removed.y, removed.radius);
       playExplosionSound();
@@ -459,9 +487,12 @@
     missiles = [];
     explosions = [];
     lastSpawnTime = 0;
+    // Reset spawn interval for level 1.  Later levels will
+    // recalculate this interval based on the new level.
     spawnInterval = 2000;
     score = 0;
-    health = 5;
+    health = 100;
+    level = 1;
     gameOver = false;
     lastTimestamp = 0;
     updateHUD();
@@ -469,11 +500,25 @@
     requestAnimationFrame(gameLoop);
   }
 
-  // End game
-  function endGame() {
+  /**
+   * End the game due to either loss (health depleted) or victory
+   * (reaching the maximum level).  When win is true the overlay
+   * displays a congratulatory message; otherwise it shows the
+   * standard game over text.
+   *
+   * @param {boolean} win - If true, the player has won the game.
+   */
+  function endGame(win = false) {
     gameOver = true;
+    // Update the overlay title based on win/lose state
+    gameOverTitleEl.textContent = win ? 'You Win!' : 'Game Over';
     finalScoreEl.textContent = score;
     gameOverOverlay.classList.remove('hidden');
+  }
+
+  // Helper for win condition; delegates to endGame() with win flag.
+  function winGame() {
+    endGame(true);
   }
 
   // Restart button handler
