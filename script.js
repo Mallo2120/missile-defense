@@ -102,7 +102,11 @@
   // Missile constructor
   function createMissile() {
     const radius = 15 + Math.random() * 10;
-    const x = radius + Math.random() * (canvas.clientWidth - radius * 2);
+    // Spawn missiles based on the canvas’s drawing buffer dimensions to
+    // ensure consistency with hit detection.  Using canvas.width
+    // instead of canvas.clientWidth avoids discrepancies on high DPI
+    // displays or when CSS styling affects the canvas size.
+    const x = radius + Math.random() * (canvas.width - radius * 2);
     const speed = 40 + Math.random() * 30 + score * 1.0; // increase speed based on score
     missiles.push({ x, y: -radius, radius, speed });
   }
@@ -319,8 +323,9 @@
     for (let i = missiles.length - 1; i >= 0; i--) {
       const m = missiles[i];
       m.y += (m.speed * delta) / 1000;
-      // Check if missile hits Earth
-      if (m.y - m.radius > canvas.clientHeight) {
+      // Check if missile hits Earth.  Use canvas.height rather than
+      // clientHeight to align with the drawing coordinate system.
+      if (m.y - m.radius > canvas.height) {
         missiles.splice(i, 1);
         health--;
         updateHUD();
@@ -383,44 +388,65 @@
   // Handle click/tap to destroy missiles
   function handlePointer(event) {
     if (gameOver) return;
-    // Determine the pointer’s client coordinates (mouse or first touch).
-    let clientX, clientY;
+    // Determine the pointer’s position relative to the canvas.
+    // For mouse events we can use offsetX/offsetY, which are
+    // coordinates relative to the target element.  For touch events
+    // we compute the position from clientX/clientY and the
+    // canvas bounding rectangle.
+    let px, py;
     if (event.touches && event.touches.length > 0) {
-      clientX = event.touches[0].clientX;
-      clientY = event.touches[0].clientY;
+      const rect = canvas.getBoundingClientRect();
+      px = event.touches[0].clientX - rect.left;
+      py = event.touches[0].clientY - rect.top;
     } else {
-      clientX = event.clientX;
-      clientY = event.clientY;
+      px = event.offsetX;
+      py = event.offsetY;
     }
-    // Map client coordinates to canvas coordinate space.  We obtain
-    // the bounding rect of the canvas and scale the client offset by
-    // the ratio of canvas pixels to displayed size.  Because the
-    // canvas is drawn at one CSS pixel per canvas pixel (see
-    // resizeCanvas()), rect.width and canvas.width should be equal,
-    // but performing this calculation makes the code robust to
-    // potential CSS transforms.
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const px = (clientX - rect.left) * scaleX;
-    const py = (clientY - rect.top) * scaleY;
-    // Simplified click handling: remove the missile closest to Earth
-    // (the one with the largest y-coordinate) when the player clicks
-    // anywhere on the canvas.  This ensures the game remains
-    // responsive even if precise hit detection fails.  If no
-    // missiles are present, do nothing.
-    if (missiles.length > 0) {
-      // Find missile with maximum y (closest to Earth)
-      let targetIndex = 0;
-      let maxY = missiles[0].y;
-      for (let i = 1; i < missiles.length; i++) {
-        if (missiles[i].y > maxY) {
-          maxY = missiles[i].y;
-          targetIndex = i;
+
+    // Note: We intentionally avoid updating the HUD here.  The
+    // scoreboard is updated only when a missile is destroyed or
+    // when the game state changes.
+    // Determine whether the pointer intersects any missile shape.
+    // We first use the precise shape test defined in pointInMissile().
+    // If no missile reports a hit, we fall back to a generous
+    // radial approximation (2.5× radius) to make gameplay forgiving.
+    let hitIndex = -1;
+    for (let i = 0; i < missiles.length; i++) {
+      const m = missiles[i];
+      // Precise shape detection using the path of the missile.
+      if (pointInMissile(m, px, py)) {
+        hitIndex = i;
+        break;
+      }
+    }
+    // If no precise hit was found, attempt a radial proximity check.
+    // We use a smaller multiplier than before to prevent destroying
+    // missiles when clicking far away.  A moderate threshold still
+    // allows for slightly imprecise taps on mobile without enabling
+    // “destroy anywhere” behaviour.  There is no fixed minimum,
+    // because using a large minimum allowed clicks anywhere on the
+    // canvas to destroy the nearest missile.
+    if (hitIndex === -1) {
+      for (let i = 0; i < missiles.length; i++) {
+        const m = missiles[i];
+        const dx = px - m.x;
+        const dy = py - m.y;
+        // Compute hit radius as a multiple of the missile’s radius.
+        // A factor of 3.0 strikes a balance between forgiving taps
+        // (especially on touch screens) and preventing clicks far
+        // from a missile from registering.  There is intentionally
+        // no absolute minimum, as large minimum thresholds made
+        // clicking anywhere destroy the nearest missile.
+        const hitRadius = m.radius * 3.0;
+        if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+          hitIndex = i;
+          break;
         }
       }
-      const removed = missiles[targetIndex];
-      missiles.splice(targetIndex, 1);
+    }
+    if (hitIndex !== -1) {
+      const removed = missiles[hitIndex];
+      missiles.splice(hitIndex, 1);
       score++;
       updateHUD();
       createExplosion(removed.x, removed.y, removed.radius);
