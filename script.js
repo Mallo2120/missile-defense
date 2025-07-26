@@ -125,11 +125,15 @@
 
   // Draw star field background
   function drawStars() {
+    // Clear the entire canvas with black to prevent residual artifacts.
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Draw each star.  Stars’ x and y are defined as percentages of
+    // the canvas dimensions, so multiply by canvas.width/height to
+    // convert to pixel coordinates.
     for (const star of starField) {
-      const x = star.x * canvas.clientWidth;
-      const y = star.y * canvas.clientHeight;
+      const x = star.x * canvas.width;
+      const y = star.y * canvas.height;
       ctx.fillStyle = `rgba(255, 255, 255, ${star.brightness})`;
       ctx.beginPath();
       ctx.arc(x, y, star.size, 0, Math.PI * 2);
